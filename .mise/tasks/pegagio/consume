@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#MISE description="Pin and verify a registered fork build in a consumer project"
+#USAGE arg "consumer-directory" help="Existing consumer-project directory"
+#USAGE arg "version" help="Previously registered fork package version"
+
+set -euo pipefail
+
+fail() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+if (($# != 2)); then
+  printf 'usage: mise run pegagio:consume <consumer-directory> <version>\n' >&2
+  exit 2
+fi
+
+consumer_directory=$(cd "$1" 2>/dev/null && pwd -P) || fail "consumer directory does not exist: $1"
+version=$2
+tool="pipx:specify-cli@$version"
+
+mise where "$tool" >/dev/null 2>&1 || fail "fork build is not registered locally: $tool"
+mise use --cd "$consumer_directory" --pin "$tool"
+mise trust "$consumer_directory/mise.toml"
+mise install --cd "$consumer_directory"
+mise exec --cd "$consumer_directory" -- specify --version

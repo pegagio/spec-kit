@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+#MISE description="Set the next local fork version for review"
+#USAGE arg "version" help="PEP 440 version to write to pyproject.toml"
+
+set -euo pipefail
+
+if (($# != 1)); then
+  printf 'usage: mise run pegagio:set-version <version>\n' >&2
+  exit 2
+fi
+
+requested_version=$1
+normalized_version=$(uv version "$requested_version" --dry-run --frozen --short)
+uv version "$normalized_version" --frozen
+
+printf 'Updated project.version to %s. Review and commit pyproject.toml before building.\n' "$normalized_version"

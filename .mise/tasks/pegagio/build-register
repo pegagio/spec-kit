@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+#MISE description="Build, register, and locally tag the committed fork release"
+#USAGE arg "version" help="Committed PEP 440 version to build and tag"
+
+set -euo pipefail
+
+fail() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+if (($# != 1)); then
+  printf 'usage: mise run pegagio:build-register <version>\n' >&2
+  exit 2
+fi
+
+requested_version=$1
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || fail 'run from a Git worktree'
+cd "$repo_root"
+
+current_branch=$(git branch --show-current)
+[[ "$current_branch" == "main" ]] || fail "release builds must run from main, not ${current_branch:-detached HEAD}"
+[[ -z "$(git status --porcelain=v1)" ]] || fail 'working tree or index is not clean'
+commit=$(git rev-parse --verify HEAD) || fail 'HEAD does not resolve to a commit'
+
+package_version=$(uv version --frozen --short)
+[[ "$package_version" == "$requested_version" ]] || fail "requested version $requested_version does not match pyproject.toml version $package_version"
+[[ "$package_version" != */* && "$package_version" != *\\* ]] || fail 'package version is not safe for an artifact path'
+
+tag="v${package_version}"
+git check-ref-format "refs/tags/$tag" >/dev/null || fail "invalid tag name: $tag"
+git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null && fail "tag already exists: $tag"
+
+artifact_dir="$repo_root/dist/local/$package_version"
+wheelhouse="$artifact_dir/wheelhouse"
+[[ ! -e "$artifact_dir" ]] || fail "artifact directory already exists: $artifact_dir"
+if mise where "pipx:specify-cli@$package_version" >/dev/null 2>&1; then
+  fail "mise already has pipx:specify-cli@$package_version; refusing to overwrite it"
+fi
+
+created_artifact=false
+created_mise_link=false
+completed=false
+cleanup() {
+  if [[ "$completed" != true ]]; then
+    if [[ "$created_mise_link" == true ]]; then
+      mise uninstall --yes "pipx:specify-cli@$package_version" >/dev/null 2>&1 || true
+    fi
+    if [[ "$created_artifact" == true ]]; then
+      rm -rf -- "$artifact_dir"
+    fi
+  fi
+}
+trap cleanup EXIT
+
+mkdir -p "$wheelhouse"
+created_artifact=true
+python_executable=$(command -v python) || fail 'Python is not available through mise'
+uv build --python "$python_executable" --wheel --out-dir "$wheelhouse"
+
+wheel_candidates=("$wheelhouse"/specify_cli-*.whl)
+[[ ${#wheel_candidates[@]} -eq 1 && -f "${wheel_candidates[0]}" ]] || fail 'expected exactly one Specify CLI wheel'
+wheel=${wheel_candidates[0]}
+
+uv venv --python "$python_executable" "$artifact_dir/venv"
+uv pip install --python "$artifact_dir/venv/bin/python" "$wheel"
+direct_version=$("$artifact_dir/venv/bin/specify" --version)
+[[ "$direct_version" == *" $package_version" ]] || fail "installed CLI reported an unexpected version: $direct_version"
+
+wheel_sha256=$(shasum -a 256 "$wheel" | awk '{print $1}')
+origin_url=$(git remote get-url origin 2>/dev/null || true)
+upstream_url=$(git remote get-url upstream 2>/dev/null || true)
+python_version=$("$artifact_dir/venv/bin/python" --version 2>&1)
+uv_version=$(uv --version)
+mise_version=$(mise --version)
+
+ORIGIN_URL="$origin_url" UPSTREAM_URL="$upstream_url" TAG="$tag" COMMIT="$commit" PACKAGE_VERSION="$package_version" WHEEL_NAME="$(basename "$wheel")" WHEEL_SHA256="$wheel_sha256" PYTHON_VERSION="$python_version" UV_VERSION="$uv_version" MISE_VERSION="$mise_version" "$artifact_dir/venv/bin/python" - "$artifact_dir/provenance.json" <<'PY'
+import json
+import os
+import pathlib
+import sys
+from datetime import datetime, timezone
+
+manifest = {
+    "schema_version": 1,
+    "package": "specify-cli",
+    "package_version": os.environ["PACKAGE_VERSION"],
+    "source": {
+        "origin": os.environ["ORIGIN_URL"],
+        "upstream": os.environ["UPSTREAM_URL"],
+        "branch": "main",
+        "tag": os.environ["TAG"],
+        "commit": os.environ["COMMIT"],
+    },
+    "wheel": {
+        "file": f"wheelhouse/{os.environ['WHEEL_NAME']}",
+        "sha256": os.environ["WHEEL_SHA256"],
+    },
+    "build_environment": {
+        "python": os.environ["PYTHON_VERSION"],
+        "uv": os.environ["UV_VERSION"],
+        "mise": os.environ["MISE_VERSION"],
+    },
+    "built_at": datetime.now(timezone.utc).isoformat(),
+}
+pathlib.Path(sys.argv[1]).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+PY
+
+mise link "pipx:specify-cli@$package_version" "$artifact_dir/venv"
+created_mise_link=true
+mise_version_output=$(mise exec "pipx:specify-cli@$package_version" -- specify --version)
+[[ "$mise_version_output" == *" $package_version" ]] || fail "mise resolved an unexpected Specify CLI version: $mise_version_output"
+
+git tag -a "$tag" "$commit" -m "Specify CLI $package_version"
+completed=true
+
+printf 'Built and registered Specify CLI %s from %s.\n' "$package_version" "$commit"
+printf 'Artifacts: %s\n' "$artifact_dir"
+printf 'Provenance: %s\n' "$artifact_dir/provenance.json"
+printf 'Wheel: %s\n' "$wheel"
+printf 'SHA-256: %s\n' "$wheel_sha256"
+printf 'Direct verification: %s\n' "$direct_version"
+printf 'Mise verification: %s\n' "$mise_version_output"
+printf 'Local tag: %s\n' "$tag"
+printf 'Consumer pin: mise use --pin "pipx:specify-cli@%s"\n' "$package_version"

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+#MISE description="Synchronize test dependencies and validate the current checkout"
+
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  printf 'error: run from a Git worktree\n' >&2
+  exit 1
+}
+cd "$repo_root"
+
+uv sync --extra test
+.venv/bin/python -m pytest tests -q
+git diff --check
