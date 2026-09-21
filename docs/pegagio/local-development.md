@@ -139,7 +139,7 @@ git commit -m "chore: prepare 1.0.10.dev0+pegagio.1"
 Build and register that exact committed version with one task:
 
 ```bash
-mise run pegagio:build-register 1.0.10.dev0+pegagio.1
+mise run pegagio:build-register
 ```
 
 The task refuses a dirty tree, a non-`main` branch, version/tag/artifact/mise collisions, or unexpected CLI version. On success it writes artifacts under `dist/local/<version>/`, records `provenance.json`, registers `pipx:specify-cli@<version>`, and creates a local tag. It removes only artifacts and registrations it created if a later build step fails.

@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Build, register, and locally tag the committed fork release"
-#USAGE arg "version" help="Committed PEP 440 version to build and tag"
+#MISE description="Build, register, and locally tag the current committed fork release"
 
 set -euo pipefail
 
@@ -9,12 +8,11 @@ fail() {
   exit 1
 }
 
-if (($# != 1)); then
-  printf 'usage: mise run pegagio:build-register <version>\n' >&2
+if (($# != 0)); then
+  printf 'usage: mise run pegagio:build-register\n' >&2
   exit 2
 fi
 
-requested_version=$1
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || fail 'run from a Git worktree'
 cd "$repo_root"
 
@@ -24,7 +22,6 @@ current_branch=$(git branch --show-current)
 commit=$(git rev-parse --verify HEAD) || fail 'HEAD does not resolve to a commit'
 
 package_version=$(uv version --short)
-[[ "$package_version" == "$requested_version" ]] || fail "requested version $requested_version does not match pyproject.toml version $package_version"
 [[ "$package_version" != */* && "$package_version" != *\\* ]] || fail 'package version is not safe for an artifact path'
 
 tag="v${package_version}"
