@@ -23,7 +23,7 @@ current_branch=$(git branch --show-current)
 [[ -z "$(git status --porcelain=v1)" ]] || fail 'working tree or index is not clean'
 commit=$(git rev-parse --verify HEAD) || fail 'HEAD does not resolve to a commit'
 
-package_version=$(uv version --frozen --short)
+package_version=$(uv version --short)
 [[ "$package_version" == "$requested_version" ]] || fail "requested version $requested_version does not match pyproject.toml version $package_version"
 [[ "$package_version" != */* && "$package_version" != *\\* ]] || fail 'package version is not safe for an artifact path'
 

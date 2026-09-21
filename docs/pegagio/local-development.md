@@ -110,6 +110,22 @@ Every different fork build needs a unique PEP 440 version and matching tag. For 
 
 Do not change the package version for ordinary edits, validation runs, or upstream synchronization. Set a new version only when the clean `main` commit is ready to become a consumable fork build. When an upstream sync changes the base version, begin that base version's fork sequence at `+pegagio.1`; for example, `1.0.11.dev0+pegagio.1` follows an upstream change from `1.0.10.dev0` to `1.0.11.dev0`.
 
+Read the current package version with:
+
+```bash
+mise run pegagio:get-version
+```
+
+The `pegagio:next-version` task derives the next usable fork version from `pyproject.toml` and locally available `v<base>+pegagio.<n>` tags. It keeps an already prepared, untagged suffix instead of skipping it:
+
+```bash
+mise run pegagio:next-version
+mise run pegagio:next-version --write
+git diff -- pyproject.toml
+```
+
+Use `pegagio:set-version <version>` only when you need to choose a nonstandard version explicitly.
+
 Set the next version, inspect the isolated change, validate it, and commit it:
 
 ```bash

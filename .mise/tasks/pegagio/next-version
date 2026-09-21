@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+#MISE description="Show or write the next available Pegagio fork version"
+#USAGE flag "--write" help="Write the computed version to pyproject.toml"
+
+set -euo pipefail
+
+fail() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+write_version=false
+if (($# == 1)) && [[ "$1" == "--write" ]]; then
+  write_version=true
+elif (($# != 0)); then
+  printf 'usage: mise run pegagio:next-version [--write]\n' >&2
+  exit 2
+fi
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || fail 'run from a Git worktree'
+cd "$repo_root"
+
+current_version=$(uv version --short)
+base_version=$current_version
+configured_suffix=0
+
+if [[ "$current_version" =~ ^(.+)\+pegagio\.([1-9][0-9]*)$ ]]; then
+  base_version=${BASH_REMATCH[1]}
+  configured_suffix=$((10#${BASH_REMATCH[2]}))
+elif [[ "$current_version" == *+* ]]; then
+  fail "current version has a non-Pegagio local suffix: $current_version; choose an explicit version with pegagio:set-version"
+fi
+
+latest_tag_suffix=0
+while IFS= read -r tag; do
+  if [[ "$tag" =~ ^v.+\+pegagio\.([1-9][0-9]*)$ ]]; then
+    tag_base=${tag#v}
+    tag_base=${tag_base%+pegagio.*}
+    if [[ "$tag_base" == "$base_version" ]]; then
+      tag_suffix=$((10#${BASH_REMATCH[1]}))
+      if ((tag_suffix > latest_tag_suffix)); then
+        latest_tag_suffix=$tag_suffix
+      fi
+    fi
+  fi
+done < <(git tag --list "v${base_version}+pegagio.*")
+
+if ((configured_suffix > latest_tag_suffix)); then
+  next_version=$current_version
+  state='prepared and untagged'
+elif ((latest_tag_suffix > 0)); then
+  next_version="${base_version}+pegagio.$((latest_tag_suffix + 1))"
+  state='next suffix after the latest local fork tag'
+else
+  next_version="${base_version}+pegagio.1"
+  state='first fork suffix for this base version'
+fi
+
+uv version "$next_version" --dry-run --frozen --short >/dev/null
+
+if [[ "$write_version" == true ]]; then
+  uv version "$next_version" --frozen
+  printf 'Updated project.version to %s (%s). Review and commit pyproject.toml before building.\n' "$next_version" "$state"
+else
+  printf 'Current version: %s\n' "$current_version"
+  printf 'Base version: %s\n' "$base_version"
+  printf 'Latest local fork suffix: %s\n' "$latest_tag_suffix"
+  printf 'Next fork version: %s (%s)\n' "$next_version" "$state"
+  printf 'To write it: mise run pegagio:next-version --write\n'
+fi

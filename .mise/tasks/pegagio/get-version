@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Synchronize test dependencies and validate the current checkout"
+#MISE description="Print the current project version"
 
 set -euo pipefail
 
@@ -9,7 +9,4 @@ repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
 }
 cd "$repo_root"
 
-uv sync --extra test
-source .venv/bin/activate
-python -m pytest tests -q
-git diff --check
+uv version --short
