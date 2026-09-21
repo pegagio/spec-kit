@@ -27,8 +27,10 @@ configured_suffix=0
 if [[ "$current_version" =~ ^(.+)\+pegagio\.([1-9][0-9]*)$ ]]; then
   base_version=${BASH_REMATCH[1]}
   configured_suffix=$((10#${BASH_REMATCH[2]}))
+elif [[ "$current_version" =~ ^(.+)\+pegagio\.dev$ ]]; then
+  base_version=${BASH_REMATCH[1]}
 elif [[ "$current_version" == *+* ]]; then
-  fail "current version has a non-Pegagio local suffix: $current_version; choose an explicit version with pegagio:set-version"
+  fail "current version has an unsupported local suffix: $current_version; use +pegagio.dev or +pegagio.<n>"
 fi
 
 latest_tag_suffix=0

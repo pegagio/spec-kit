@@ -15,7 +15,7 @@ Follow the lifecycle sections in order when preparing a fork release; use the lo
 - [Develop and Validate Locally](#develop-and-validate-locally)
 - [Synchronize Canonical Upstream](#synchronize-canonical-upstream)
 - [Build and Register a Fork Release](#build-and-register-a-fork-release)
-- [Consume a Fork Release](#consume-a-fork-release)
+- [Consume a Fork Release in Other Projects](#consume-a-fork-release-in-other-projects)
 - [Refresh a Consumer Project](#refresh-a-consumer-project)
 - [Additional Development Techniques](#additional-development-techniques)
 - [Troubleshooting](#troubleshooting)
@@ -61,13 +61,12 @@ mise install python uv
 
 ## Develop and Validate Locally
 
-Start from current `main`, edit the checkout, and run the CLI directly for the fastest feedback:
+Start from current `main`, edit the checkout, and use the local dogfooding task for the fastest feedback:
 
 ```bash
 git switch main
 git pull --ff-only origin main
-uv run specify --help
-uv run specify init demo-project --integration codex --ignore-agent-tools --script py
+mise run pegagio:dogfood --help
 ```
 
 The `pegagio:validate` task automates the normal multi-command validation loop. It synchronizes test dependencies, runs the test suite through this checkout's virtual environment, and checks the complete diff for whitespace errors:
@@ -83,6 +82,57 @@ uvx ruff@0.15.0 check src tests
 ```
 
 Commit the intended source, documentation, and version changes to `main` only after validation. A release build never packages uncommitted work.
+
+### Dogfood This Checkout
+
+Dogfooding is intentionally limited to this Spec Kit checkout. The `pegagio:dogfood` task runs this repository's editable CLI and verifies that its reported version matches `pyproject.toml`, so it cannot silently run stale package metadata.
+
+Run it from this checkout with any Specify arguments:
+
+```bash
+mise run pegagio:dogfood --version
+```
+
+The editable install reads ordinary Python source, templates, and bundled-script changes immediately. Run `uv sync --extra test` only after changing dependencies, `pyproject.toml`, console-entry-point/package configuration, or recreating `.venv`.
+
+Its reported version should end in `+pegagio.dev`, which identifies it as live source rather than a registered build. Do not link this editable environment into another project. Other projects use only a registered, pinned release.
+
+### One-Time Local Workflow Setup
+
+Set up the source checkout once when you want to invoke Spec Kit skills in Codex while developing this repository. This is local dogfooding state, not release content: the generated Codex skills stay untracked, and the bundled bug workflow is enabled only in this checkout.
+
+First exclude the generated Codex skills from this checkout's local Git status, then initialize Codex skills and add the bug extension through the editable CLI:
+
+```bash
+printf '\n# Local Codex dogfooding scaffolding\n.agents/\n' >> .git/info/exclude
+mise run pegagio:dogfood init --here --force --integration codex --integration-options="--skills" --script py
+mise run pegagio:dogfood extension add bug
+```
+
+This requires the `codex` CLI to be installed and available on `PATH`. Do not add `agent-context`: it is only for managing a marked section in an agent instruction file, while this fork's `AGENTS.md` remains manually maintained. Do not add the `git` extension: this fork already has an explicit branch and commit workflow, while that extension creates feature branches and can add commit hooks.
+
+### Optional Codex Workflow Test
+
+The local setup above is sufficient for normal dogfooding. When a change affects `specify init`, generated Codex skills, or a workflow command's first-run behavior, also test it in a disposable project. That verifies the fresh-project experience without relying on existing local scaffolding.
+
+Initialize a temporary project with the Codex skills integration from the editable CLI:
+
+```bash
+test_root=$(mktemp -d /tmp/specify-test.XXXXXX)
+test_project="$test_root/speckit-test"
+mise run pegagio:dogfood init "$test_project" --integration codex --integration-options="--skills" --ignore-agent-tools --script py
+```
+
+Open that temporary project in Codex and invoke the generated skills there. The core workflow is installed by `init`; for example, use `$speckit-specify`, then its required follow-on skills in order when the change affects them.
+
+The bug extension is part of the local setup above. Other extensions remain optional test subjects; install one in the disposable project only when the change or manual test exercises its behavior:
+
+```bash
+# Test the bundled idea-assessment workflow.
+SPECIFY_INIT_DIR="$test_project" mise run pegagio:dogfood extension add assess
+```
+
+Install the `git` extension only in a disposable project when changing or testing it. It is not part of the normal Pegagio workflow.
 
 ## Synchronize Canonical Upstream
 
@@ -106,9 +156,9 @@ Resolve conflicts locally before validation. Do not rebase or force-push `main`;
 
 The release task turns a clean `main` commit into a wheel, provenance record, machine-local mise registration, and local annotated tag. It does not push a tag, publish to PyPI, or update a consumer project.
 
-Every different fork build needs a unique PEP 440 version and matching tag. For example, a first fork build based on the current development version can use `1.0.10.dev0+pegagio.1` and tag `v1.0.10.dev0+pegagio.1`. Advance the suffix for every different build; never assign new contents to an existing tag or version.
+The checkout uses two PEP 440 local-version states. Live source dogfooding uses `<base>+pegagio.dev`, such as `1.0.10.dev0+pegagio.dev`. A registered build uses `<base>+pegagio.<n>`, such as `1.0.10.dev0+pegagio.1`, with a matching `v<version>` tag. Advance the numeric suffix for every different build; never assign new contents to an existing tag or version.
 
-Do not change the package version for ordinary edits, validation runs, or upstream synchronization. Set a new version only when the clean `main` commit is ready to become a consumable fork build. When an upstream sync changes the base version, begin that base version's fork sequence at `+pegagio.1`; for example, `1.0.11.dev0+pegagio.1` follows an upstream change from `1.0.10.dev0` to `1.0.11.dev0`.
+Do not change the package version for ordinary edits or validation runs. Change it at the two release boundaries: prepare the next numeric suffix only when a clean `main` commit is ready to become a consumable build, then restore `+pegagio.dev` in a follow-up commit after registration. When an upstream sync changes the base version, restore development mode for that base before dogfooding; the first build for the new base is `+pegagio.1`.
 
 Read the current package version with:
 
@@ -116,7 +166,7 @@ Read the current package version with:
 mise run pegagio:get-version
 ```
 
-The `pegagio:next-version` task derives the next usable fork version from `pyproject.toml` and locally available `v<base>+pegagio.<n>` tags. It keeps an already prepared, untagged suffix instead of skipping it:
+The `pegagio:next-version` task derives the next usable numeric build version from `pyproject.toml` and locally available `v<base>+pegagio.<n>` tags. From `+pegagio.dev`, it chooses the next numeric suffix. It keeps an already prepared, untagged numeric suffix instead of skipping it:
 
 ```bash
 mise run pegagio:next-version
@@ -144,6 +194,17 @@ mise run pegagio:build-register
 
 The task refuses a dirty tree, a non-`main` branch, version/tag/artifact/mise collisions, or unexpected CLI version. On success it writes artifacts under `dist/local/<version>/`, records `provenance.json`, registers `pipx:specify-cli@<version>`, and creates a local tag. It removes only artifacts and registrations it created if a later build step fails.
 
+Return the source checkout to explicit live development mode immediately after a successful registration:
+
+```bash
+mise run pegagio:resume-development
+git diff -- pyproject.toml
+git add pyproject.toml
+git commit -m "chore: resume development after 1.0.10.dev0+pegagio.1"
+```
+
+`pegagio:build-register` rejects the `+pegagio.dev` version, so development source cannot be registered accidentally.
+
 Verify the result before using it:
 
 ```bash
@@ -161,16 +222,16 @@ git push origin v1.0.10.dev0+pegagio.1
 
 Pushing the tag shares the source identity, not the locally built wheel or mise registration. Another machine must build and register that exact tag before it can consume the fork release.
 
-## Consume a Fork Release
+## Consume a Fork Release in Other Projects
 
-A consumer project records its selected fork version in its own `mise.toml`; it never records a checkout path, wheel, or branch name. For example:
+Every project outside this checkout consumes a registered fork release. It records its selected version in its own `mise.toml`; it never records a Spec Kit checkout path, wheel, branch name, or development link. For example:
 
 ```toml
 [tools]
 "pipx:specify-cli" = "1.0.10.dev0+pegagio.1"
 ```
 
-From this fork checkout, the `pegagio:consume` task automates consumer setup. It verifies that the fork build is registered locally, writes the exact consumer pin, trusts the consumer's `mise.toml`, installs declared tools, and verifies the selected CLI:
+From this fork checkout, the `pegagio:consume` task automates release setup in another project. It verifies that the fork build is registered locally, writes the exact project pin, trusts that project's `mise.toml`, installs declared tools, and verifies the selected CLI:
 
 ```bash
 mise run pegagio:consume /absolute/path/to/consumer-project 1.0.10.dev0+pegagio.1
@@ -191,8 +252,8 @@ Avoid `specify self upgrade` in this workflow. It currently resolves canonical `
 Changing a project's CLI selection does not rewrite its generated files. After consuming a new release, refresh only the applicable managed artifacts and review their diff:
 
 ```bash
-specify integration upgrade <key>
-specify extension update
+mise exec -- specify integration upgrade <key>
+mise exec -- specify extension update
 ```
 
 Specifications, plans, constitutions, source code, and Git history are outside the normal manifest-aware upgrade path. For a Codex skills integration, generated skills are snapshots of the selected version:
@@ -205,30 +266,22 @@ Commit generated files only when they are part of the consumer project's intende
 
 ## Additional Development Techniques
 
-Use `uvx` to simulate a user flow from this checkout or a pushed branch without making it the installed consumer version:
+Use `uvx` to simulate a user flow from a pushed branch without making it an installed release:
 
 ```bash
-uvx --from . specify init demo-uvx --integration copilot --ignore-agent-tools --script sh
 uvx --from git+https://github.com/pegagio/spec-kit.git@feature-branch specify init demo-branch-test --script py
 ```
 
 Use the integration scaffold command to create the initial Python package and test skeleton for a new built-in integration:
 
 ```bash
-specify integration scaffold my-agent --type markdown
-specify integration scaffold my-agent --type toml
-specify integration scaffold my-agent --type yaml
-specify integration scaffold my-agent --type skills
+mise run pegagio:dogfood integration scaffold my-agent --type markdown
+mise run pegagio:dogfood integration scaffold my-agent --type toml
+mise run pegagio:dogfood integration scaffold my-agent --type yaml
+mise run pegagio:dogfood integration scaffold my-agent --type skills
 ```
 
 Hyphenated keys become Python-safe package names. The scaffold does not register the integration automatically; review the generated metadata, then add the import and `_register()` call in `src/specify_cli/integrations/__init__.py`.
-
-When testing initialization in a disposable directory, use a temporary workspace outside every source checkout:
-
-```bash
-test_root=$(mktemp -d /tmp/specify-test.XXXXXX)
-uv run specify init "$test_root/demo" --integration claude --ignore-agent-tools --script sh
-```
 
 ## Troubleshooting
 

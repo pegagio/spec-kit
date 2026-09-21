@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+#MISE description="Set the checkout to its live Pegagio development version"
+
+set -euo pipefail
+
+fail() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+if (($# != 0)); then
+  printf 'usage: mise run pegagio:resume-development\n' >&2
+  exit 2
+fi
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || fail 'run from a Git worktree'
+cd "$repo_root"
+
+current_version=$(uv version --short)
+base_version=$current_version
+
+if [[ "$current_version" =~ ^(.+)\+pegagio\.([1-9][0-9]*)$ ]]; then
+  base_version=${BASH_REMATCH[1]}
+elif [[ "$current_version" =~ ^(.+)\+pegagio\.dev$ ]]; then
+  printf 'Project is already in live development mode: %s\n' "$current_version"
+  exit 0
+elif [[ "$current_version" == *+* ]]; then
+  fail "current version has an unsupported local suffix: $current_version; choose an explicit version with pegagio:set-version"
+fi
+
+development_version="${base_version}+pegagio.dev"
+uv version "$development_version" --dry-run --frozen --short >/dev/null
+uv version "$development_version" --frozen
+
+printf 'Updated project.version to %s. Review and commit pyproject.toml before dogfooding from source.\n' "$development_version"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-#MISE description="Pin and verify a registered fork build in a consumer project"
-#USAGE arg "consumer-directory" help="Existing consumer-project directory"
+#MISE description="Pin and verify a registered fork build in another project"
+#USAGE arg "consumer-directory" help="Existing project directory to consume a release"
 #USAGE arg "version" help="Previously registered fork package version"
 
 set -euo pipefail

@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#MISE description="Run this checkout's editable Specify CLI for local dogfooding"
+
+set -euo pipefail
+
+fail() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+if (($# == 0)); then
+  printf 'usage: mise run pegagio:dogfood <specify arguments>\n' >&2
+  exit 2
+fi
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || fail 'run from a Git worktree'
+cd "$repo_root"
+
+specify="$repo_root/.venv/bin/specify"
+[[ -x "$specify" ]] || fail 'editable virtual environment is unavailable; run uv sync --extra test'
+
+expected_version=$(uv version --short)
+reported_version=$("$specify" --version)
+[[ "$reported_version" == *" $expected_version" ]] || fail "editable CLI reports $reported_version; expected $expected_version; run uv sync --extra test"
+
+exec "$specify" "$@"
