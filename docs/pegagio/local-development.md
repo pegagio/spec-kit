@@ -156,7 +156,7 @@ Resolve conflicts locally before validation. Do not rebase or force-push `main`;
 
 The release task turns a clean `main` commit into a wheel, provenance record, machine-local mise registration, and local annotated tag. It does not push a tag, publish to PyPI, or update a consumer project.
 
-The checkout uses two PEP 440 local-version states. Live source dogfooding uses `<base>+pegagio.dev`, such as `1.0.10.dev0+pegagio.dev`. A registered build uses `<base>+pegagio.<n>`, such as `1.0.10.dev0+pegagio.1`, with a matching `v<version>` tag. Advance the numeric suffix for every different build; never assign new contents to an existing tag or version.
+The checkout uses two PEP 440 local-version states. Live source dogfooding uses `<base>+pegagio.dev`. A registered build uses `<base>+pegagio.<n>`, with a matching `v<version>` tag. Advance the numeric suffix for every different build; never assign new contents to an existing tag or version.
 
 Do not change the package version for ordinary edits or validation runs. Change it at the two release boundaries: prepare the next numeric suffix only when a clean `main` commit is ready to become a consumable build, then restore `+pegagio.dev` in a follow-up commit after registration. When an upstream sync changes the base version, restore development mode for that base before dogfooding; the first build for the new base is `+pegagio.1`.
 
@@ -166,24 +166,24 @@ Read the current package version with:
 mise run pegagio:get-version
 ```
 
-The `pegagio:next-version` task derives the next usable numeric build version from `pyproject.toml` and locally available `v<base>+pegagio.<n>` tags. From `+pegagio.dev`, it chooses the next numeric suffix. It keeps an already prepared, untagged numeric suffix instead of skipping it:
+The `pegagio:next-version` task derives the next usable numeric build version from `pyproject.toml` and locally available `v<base>+pegagio.<n>` tags. From `+pegagio.dev`, it chooses the next numeric suffix. It keeps an already prepared, untagged numeric suffix instead of skipping it. Preview that decision before writing it:
 
 ```bash
 mise run pegagio:next-version
-mise run pegagio:next-version --write
-git diff -- pyproject.toml
 ```
 
 Use `pegagio:set-version <version>` only when you need to choose a nonstandard version explicitly.
 
-Set the next version, inspect the isolated change, validate it, and commit it:
+Prepare the next version, retain it in a shell variable for the later checks and tag push, inspect the isolated change, validate it, and commit it:
 
 ```bash
-mise run pegagio:set-version 1.0.10.dev0+pegagio.1
+mise run pegagio:next-version --write
+release_version=$(mise run pegagio:get-version)
+printf 'Preparing fork release %s\n' "$release_version"
 git diff -- pyproject.toml
 mise run pegagio:validate
 git add pyproject.toml
-git commit -m "chore: prepare 1.0.10.dev0+pegagio.1"
+git commit -m "chore: prepare fork release"
 ```
 
 Build and register that exact committed version with one task:
@@ -200,7 +200,7 @@ Return the source checkout to explicit live development mode immediately after a
 mise run pegagio:resume-development
 git diff -- pyproject.toml
 git add pyproject.toml
-git commit -m "chore: resume development after 1.0.10.dev0+pegagio.1"
+git commit -m "chore: resume Pegagio development"
 ```
 
 `pegagio:build-register` rejects the `+pegagio.dev` version, so development source cannot be registered accidentally.
@@ -208,16 +208,18 @@ git commit -m "chore: resume development after 1.0.10.dev0+pegagio.1"
 Verify the result before using it:
 
 ```bash
-mise where "pipx:specify-cli@1.0.10.dev0+pegagio.1"
-mise exec "pipx:specify-cli@1.0.10.dev0+pegagio.1" -- specify --version
-shasum -a 256 dist/local/1.0.10.dev0+pegagio.1/wheelhouse/specify_cli-1.0.10.dev0+pegagio.1-py3-none-any.whl
+mise where "pipx:specify-cli@$release_version"
+mise exec "pipx:specify-cli@$release_version" -- specify --version
+shasum -a 256 "dist/local/$release_version/wheelhouse/specify_cli-$release_version-py3-none-any.whl"
 ```
+
+Keep the commands in one shell session so `release_version` remains available. If you start a new session, copy the version from the successful `pegagio:build-register` output before running the verification or tag-push commands.
 
 Remote publication remains explicit after this local verification:
 
 ```bash
 git push origin main:main
-git push origin v1.0.10.dev0+pegagio.1
+git push origin "v$release_version"
 ```
 
 Pushing the tag shares the source identity, not the locally built wheel or mise registration. Another machine must build and register that exact tag before it can consume the fork release.
