@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+#MISE description="List locally registered Pegagio fork releases"
+
+set -euo pipefail
+
+if (($# != 0)); then
+  printf 'usage: mise run pegagio:list-versions\n' >&2
+  exit 2
+fi
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  printf 'error: run from a Git worktree\n' >&2
+  exit 1
+}
+cd "$repo_root"
+
+found=false
+while IFS= read -r tag; do
+  [[ "$tag" =~ ^v.+\+pegagio\.[1-9][0-9]*$ ]] || continue
+  version=${tag#v}
+  [[ -f "$repo_root/dist/local/$version/provenance.json" ]] || continue
+  install_dir=$(mise where "pipx:specify-cli@$version" 2>/dev/null) || continue
+  [[ -x "$install_dir/bin/specify" ]] || continue
+  printf '%s\n' "$version"
+  found=true
+done < <(git tag --list 'v*+pegagio.*' --sort=-version:refname)
+
+if [[ "$found" == false ]]; then
+  printf 'No locally registered Pegagio fork releases found.\n' >&2
+fi

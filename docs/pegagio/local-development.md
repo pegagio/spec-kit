@@ -233,6 +233,14 @@ Every project outside this checkout consumes a registered fork release. It recor
 "pipx:specify-cli" = "1.0.10.dev0+pegagio.1"
 ```
 
+List the fork releases built and registered on this machine to choose a version for `pegagio:consume`:
+
+```bash
+mise run pegagio:list-versions
+```
+
+The list includes only versions with a local tag, build provenance, and a working mise registration. `pegagio:get-version` reports this checkout's source version, which may be the live `+pegagio.dev` version rather than a consumable release.
+
 From this fork checkout, the `pegagio:consume` task automates release setup in another project. It verifies that the fork build is registered locally, writes the exact project pin, trusts that project's `mise.toml`, installs declared tools, and verifies the selected CLI:
 
 ```bash
@@ -292,7 +300,7 @@ Hyphenated keys become Python-safe package names. The scaffold does not register
 Confirm that the exact fork build is registered locally:
 
 ```bash
-mise ls pipx:specify-cli
+mise run pegagio:list-versions
 mise where "pipx:specify-cli@1.0.10.dev0+pegagio.1"
 ```
 
